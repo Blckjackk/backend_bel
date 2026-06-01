@@ -7,43 +7,35 @@ use Illuminate\Http\Request;
 
 class FavoriteController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
     public function index()
     {
-        //
+        $favorites = Favorite::where('user_id', auth()->id())
+            ->with('office')
+            ->get();
+        return response()->json($favorites);
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
     public function store(Request $request)
     {
-        //
+        $request->validate([
+            'office_id' => 'required|exists:offices,id',
+        ]);
+
+        $favorite = Favorite::firstOrCreate([
+            'user_id' => auth()->id(),
+            'office_id' => $request->office_id,
+        ]);
+
+        return response()->json($favorite, 201);
     }
 
-    /**
-     * Display the specified resource.
-     */
-    public function show(Favorite $favorite)
-    {
-        //
-    }
-
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(Request $request, Favorite $favorite)
-    {
-        //
-    }
-
-    /**
-     * Remove the specified resource from storage.
-     */
     public function destroy(Favorite $favorite)
     {
-        //
+        if ($favorite->user_id !== auth()->id()) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $favorite->delete();
+        return response()->json(['message' => 'Removed from favorites']);
     }
 }

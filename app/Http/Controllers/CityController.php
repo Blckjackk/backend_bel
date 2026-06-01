@@ -4,46 +4,39 @@ namespace App\Http\Controllers;
 
 use App\Models\City;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 class CityController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
     public function index()
     {
-        //
+        return response()->json(City::withCount('offices')->get());
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
     public function store(Request $request)
     {
-        //
+        if (auth()->user()->role !== 'admin') {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $request->validate([
+            'name' => 'required|string|unique:cities,name',
+            'image' => 'required|image',
+        ]);
+
+        $path = $request->file('image')->store('cities', 'public');
+
+        $city = City::create([
+            'name' => $request->name,
+            'slug' => Str::slug($request->name),
+            'image' => $path,
+        ]);
+
+        return response()->json($city, 201);
     }
 
-    /**
-     * Display the specified resource.
-     */
     public function show(City $city)
     {
-        //
-    }
-
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(Request $request, City $city)
-    {
-        //
-    }
-
-    /**
-     * Remove the specified resource from storage.
-     */
-    public function destroy(City $city)
-    {
-        //
+        return response()->json($city->load('offices'));
     }
 }
