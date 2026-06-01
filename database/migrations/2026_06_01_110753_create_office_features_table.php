@@ -13,6 +13,8 @@ return new class extends Migration
     {
         Schema::create('office_features', function (Blueprint $table) {
             $table->id();
+            $table->foreignId('office_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('feature_id')->constrained()->cascadeOnDelete();
             $table->timestamps();
         });
     }

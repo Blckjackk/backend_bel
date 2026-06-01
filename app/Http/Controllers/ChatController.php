@@ -7,43 +7,54 @@ use Illuminate\Http\Request;
 
 class ChatController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
     public function index()
     {
-        //
+        $user = auth()->user();
+        
+        $chats = Chat::where('sender_id', $user->id)
+            ->orWhere('receiver_id', $user->id)
+            ->with(['sender', 'receiver', 'office'])
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return response()->json($chats);
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
     public function store(Request $request)
     {
-        //
+        $request->validate([
+            'receiver_id' => 'required|exists:users,id',
+            'office_id' => 'nullable|exists:offices,id',
+            'message' => 'required|string',
+        ]);
+
+        $chat = Chat::create([
+            'sender_id' => auth()->id(),
+            'receiver_id' => $request->receiver_id,
+            'office_id' => $request->office_id,
+            'message' => $request->message,
+            'is_read' => false,
+        ]);
+
+        return response()->json($chat, 201);
     }
 
-    /**
-     * Display the specified resource.
-     */
-    public function show(Chat $chat)
+    public function getConversation($userId)
     {
-        //
-    }
+        $authId = auth()->id();
+        
+        $chats = Chat::where(function($q) use ($authId, $userId) {
+                $q->where('sender_id', $authId)->where('receiver_id', $userId);
+            })->orWhere(function($q) use ($authId, $userId) {
+                $q->where('sender_id', $userId)->where('receiver_id', $authId);
+            })
+            ->with(['sender', 'receiver'])
+            ->orderBy('created_at', 'asc')
+            ->get();
 
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(Request $request, Chat $chat)
-    {
-        //
-    }
+        // Mark as read
+        Chat::where('sender_id', $userId)->where('receiver_id', $authId)->update(['is_read' => true]);
 
-    /**
-     * Remove the specified resource from storage.
-     */
-    public function destroy(Chat $chat)
-    {
-        //
+        return response()->json($chats);
     }
 }
