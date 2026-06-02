@@ -25,6 +25,7 @@ return new class extends Migration
             $table->boolean('is_open')->default(true);
             $table->boolean('is_full_booked')->default(false);
             $table->float('rating')->default(0);
+            $table->json('sales_contacts')->nullable();
             $table->timestamps();
             $table->softDeletes();
         });

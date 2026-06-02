@@ -13,6 +13,13 @@ class City extends Model
 
     protected $fillable = ['name', 'slug', 'image'];
 
+    protected $appends = ['officeCount'];
+
+    public function getOfficeCountAttribute()
+    {
+        return $this->offices_count ?? $this->offices()->count();
+    }
+
     public function offices(): HasMany
     {
         return $this->hasMany(Office::class);

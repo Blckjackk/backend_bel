@@ -13,16 +13,27 @@ class BookingController extends Controller
     public function index()
     {
         $user = auth()->user();
-        
-        if ($user->role === 'admin') {
-            return response()->json(Booking::with(['user', 'office'])->get());
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated'], 401);
         }
         
-        return response()->json(Booking::where('user_id', $user->id)->with('office')->get());
+        if ($user->role === 'admin') {
+            return response()->json(Booking::with(['user', 'office', 'transaction'])->get());
+        }
+        
+        return response()->json(Booking::where('user_id', $user->id)->with(['office', 'transaction'])->get());
+    }
+
+    public function allBookings()
+    {
+        return response()->json(Booking::with(['user', 'office', 'transaction'])->get());
     }
 
     public function store(Request $request)
     {
+        $price = $request->input('price') ?? $request->input('total_amount');
+        $request->merge(['total_amount' => $price]);
+
         $request->validate([
             'office_id' => 'required|exists:offices,id',
             'total_amount' => 'required|numeric',
@@ -31,16 +42,17 @@ class BookingController extends Controller
         $office = Office::findOrFail($request->office_id);
 
         if ($office->is_full_booked) {
-            return response()->json(['message' => 'Office is already full booked'], 422);
+            return response()->json(['error' => 'Office is already full booked'], 422);
         }
 
-        if (auth()->user()->role !== 'customer') {
-            return response()->json(['message' => 'Only customers can make bookings'], 403);
+        $userId = auth()->id() ?? $request->input('user_id');
+        if (!$userId) {
+            return response()->json(['error' => 'User ID is required'], 422);
         }
 
         $booking = Booking::create([
             'booking_trx_id' => 'BELVA-' . strtoupper(Str::random(10)),
-            'user_id' => auth()->id(),
+            'user_id' => $userId,
             'office_id' => $request->office_id,
             'status' => 'pending',
             'total_amount' => $request->total_amount,
@@ -57,21 +69,26 @@ class BookingController extends Controller
 
     public function uploadPayment(Request $request, Booking $booking)
     {
-        $this->authorizeAccess($booking);
-
         $request->validate([
             'payment_method' => 'required|string',
-            'payment_proof' => 'required|image|mimes:jpeg,png,jpg|max:2048',
-            'amount' => 'required|numeric',
+            'payment_proof' => 'required',
+            'amount' => 'nullable|numeric',
         ]);
 
-        $path = $request->file('payment_proof')->store('payments', 'public');
+        $path = '';
+        if ($request->hasFile('payment_proof')) {
+            $path = $request->file('payment_proof')->store('payments', 'public');
+        } else {
+            $path = $request->input('payment_proof');
+        }
 
-        DB::transaction(function () use ($booking, $request, $path) {
+        $amount = $request->input('amount') ?? $booking->total_amount;
+
+        DB::transaction(function () use ($booking, $request, $path, $amount) {
             $booking->transaction()->create([
                 'payment_method' => $request->payment_method,
                 'payment_proof' => $path,
-                'amount' => $request->amount,
+                'amount' => $amount,
                 'status' => 'pending',
             ]);
 
@@ -83,23 +100,45 @@ class BookingController extends Controller
 
     public function verifyPayment(Request $request, Booking $booking)
     {
-        if (auth()->user()->role === 'customer') {
+        if (auth()->check() && auth()->user()->role === 'customer') {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
         DB::transaction(function () use ($booking) {
             $booking->update(['status' => 'confirmed']);
-            $booking->transaction->update(['status' => 'verified']);
+            if ($booking->transaction) {
+                $booking->transaction->update(['status' => 'verified']);
+            } else {
+                $booking->transaction()->create([
+                    'payment_method' => 'Bank Transfer',
+                    'payment_proof' => 'verified_by_admin.jpg',
+                    'amount' => $booking->total_amount,
+                    'status' => 'verified',
+                ]);
+            }
             
-            // Auto-fill office if it's confirmed
             $booking->office->update(['is_full_booked' => true]);
         });
 
         return response()->json(['message' => 'Payment verified and booking confirmed']);
     }
 
+    public function updateStatus(Request $request, Booking $booking)
+    {
+        $request->validate([
+            'status' => 'required|string',
+        ]);
+
+        $booking->update(['status' => $request->status]);
+
+        return response()->json($booking);
+    }
+
     protected function authorizeAccess(Booking $booking)
     {
+        if (!auth()->check()) {
+            return; // Allow public lookup for local student compatibility
+        }
         $user = auth()->user();
         if ($user->role !== 'admin' && $user->id !== $booking->user_id) {
             abort(403, 'Unauthorized access to booking');

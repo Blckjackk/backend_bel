@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Office;
+use App\Models\Feature;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
@@ -16,11 +17,19 @@ class OfficeController extends Controller
             $query->where('city_id', $request->city_id);
         }
 
+        if ($request->has('provider_id')) {
+            $query->where('provider_id', $request->provider_id);
+        }
+
         if ($request->has('search')) {
             $query->where('name', 'like', '%' . $request->search . '%');
         }
 
-        return response()->json($query->where('is_open', true)->get());
+        if (!$request->has('provider_id')) {
+            $query->where('is_open', true);
+        }
+
+        return response()->json($query->get());
     }
 
     public function store(Request $request)
@@ -32,7 +41,7 @@ class OfficeController extends Controller
         $validated = $request->validate([
             'city_id' => 'required|exists:cities,id',
             'name' => 'required|string|max:255',
-            'thumbnail' => 'required|image',
+            'thumbnail' => 'required',
             'about' => 'required|string',
             'address' => 'required|string',
             'price' => 'required|numeric',
@@ -41,9 +50,37 @@ class OfficeController extends Controller
 
         $validated['slug'] = Str::slug($request->name);
         $validated['provider_id'] = auth()->id();
-        $validated['thumbnail'] = $request->file('thumbnail')->store('offices', 'public');
+
+        if ($request->hasFile('thumbnail')) {
+            $validated['thumbnail'] = $request->file('thumbnail')->store('offices', 'public');
+        } else {
+            $validated['thumbnail'] = $request->input('thumbnail');
+        }
 
         $office = Office::create($validated);
+
+        if ($request->has('sales_contacts')) {
+            $office->update(['sales_contacts' => $request->sales_contacts]);
+        }
+
+        if ($request->has('images')) {
+            foreach ($request->images as $img) {
+                if ($img) {
+                    $office->images()->create(['image' => $img]);
+                }
+            }
+        }
+
+        if ($request->has('feature_names')) {
+            $featureIds = [];
+            foreach ($request->feature_names as $fname) {
+                if ($fname) {
+                    $feature = Feature::firstOrCreate(['name' => $fname], ['icon' => 'default-icon.svg']);
+                    $featureIds[] = $feature->id;
+                }
+            }
+            $office->features()->sync($featureIds);
+        }
 
         return response()->json($office, 201);
     }
@@ -76,9 +113,47 @@ class OfficeController extends Controller
 
         if ($request->hasFile('thumbnail')) {
             $validated['thumbnail'] = $request->file('thumbnail')->store('offices', 'public');
+        } elseif ($request->has('thumbnail')) {
+            $validated['thumbnail'] = $request->input('thumbnail');
         }
 
         $office->update($validated);
+
+        if ($request->has('sales_contacts')) {
+            $office->update(['sales_contacts' => $request->sales_contacts]);
+        }
+
+        if ($request->has('images')) {
+            $office->images()->delete();
+            foreach ($request->images as $img) {
+                if ($img) {
+                    $office->images()->create(['image' => $img]);
+                }
+            }
+        }
+
+        if ($request->has('feature_names')) {
+            $featureIds = [];
+            foreach ($request->feature_names as $fname) {
+                if ($fname) {
+                    $feature = Feature::firstOrCreate(['name' => $fname], ['icon' => 'default-icon.svg']);
+                    $featureIds[] = $feature->id;
+                }
+            }
+            $office->features()->sync($featureIds);
+        }
+
+        return response()->json($office);
+    }
+
+    public function toggleFullyBooked(Office $office)
+    {
+        $user = auth()->user();
+        if ($user->role !== 'admin' && $user->id !== $office->provider_id) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $office->update(['is_full_booked' => !$office->is_full_booked]);
 
         return response()->json($office);
     }

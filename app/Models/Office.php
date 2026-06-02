@@ -25,7 +25,17 @@ class Office extends Model
         'is_open',
         'is_full_booked',
         'rating',
+        'sales_contacts',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'sales_contacts' => 'array',
+            'is_open' => 'boolean',
+            'is_full_booked' => 'boolean',
+        ];
+    }
 
     public function city(): BelongsTo
     {
